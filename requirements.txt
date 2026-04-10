@@ -1,0 +1,10 @@
+ccxt
+pandas
+numpy
+scikit-learn
+ta
+joblib
+matplotlib
+seaborn
+hmmlearn
+PySide6
