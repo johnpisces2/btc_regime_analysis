@@ -1,9 +1,11 @@
 import ccxt
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import time
 import os
 import argparse
+
+UTC8 = timezone(timedelta(hours=8))
 
 
 def fetch_btc_ohlcv(symbol="BTC/USDT", exchange_id="binance", 
@@ -16,10 +18,15 @@ def fetch_btc_ohlcv(symbol="BTC/USDT", exchange_id="binance",
     })
     
     if end_date is None:
-        end_date = datetime.now().strftime("%Y-%m-%d")
+        end_date = datetime.now(UTC8).strftime("%Y-%m-%d")
     
-    start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
-    end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000)
+    start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=UTC8).timestamp() * 1000)
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=UTC8)
+    today = datetime.now(UTC8).date()
+    if end_dt.date() == today:
+        end_ts = int(datetime.now(UTC8).timestamp() * 1000)
+    else:
+        end_ts = int(end_dt.timestamp() * 1000)
     
     all_ohlcv = []
     current_ts = start_ts

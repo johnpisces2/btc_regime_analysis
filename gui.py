@@ -152,7 +152,7 @@ class ImagePreview(QLabel):
         self._pixmap = None
         self.setObjectName("imagePreview")
         self.setAlignment(Qt.AlignCenter)
-        self.setMinimumSize(0, 0)
+        self.setMinimumSize(400, 200)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setWordWrap(True)
         self._set_placeholder("No chart loaded yet", "Run All to generate fresh visuals.")
@@ -437,6 +437,12 @@ class MainWindow(QMainWindow):
                 background: #FFFDF8;
                 margin-top: 8px;
             }
+            QTabWidget::tab-bar {
+                alignment: center;
+            }
+            QTabBar::tab {
+                text-align: center;
+            }
             QTabWidget#contentTabs::pane {
                 border: none;
                 background: transparent;
@@ -450,6 +456,9 @@ class MainWindow(QMainWindow):
             }
             QTabWidget#contentTabs QTabBar {
                 background: transparent;
+            }
+            QTabWidget#contentTabs::tab-bar {
+                alignment: center;
             }
             QTabBar::tab {
                 background: #EDE3D3;
@@ -498,10 +507,42 @@ class MainWindow(QMainWindow):
                 font-family: "SF Mono", "Menlo", "Consolas", monospace;
             }
             QScrollBar:vertical {
-                background: #F0E8DB;
+                background: #E5D9C8;
                 width: 12px;
                 margin: 4px 2px 4px 2px;
                 border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background: #9E8B73;
+                min-height: 28px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #7A6B55;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+                border: none;
+                background: transparent;
+            }
+            QScrollBar:horizontal {
+                background: #E5D9C8;
+                height: 12px;
+                margin: 2px 4px 2px 4px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #9E8B73;
+                min-width: 28px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #7A6B55;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+                border: none;
+                background: transparent;
             }
             QScrollBar::handle:vertical {
                 background: #C7B59C;
@@ -705,6 +746,7 @@ class MainWindow(QMainWindow):
         self.content_tabs.setObjectName("contentTabs")
         self.content_tabs.addTab(self._build_chart_panel(), "Visual Story")
         self.content_tabs.addTab(self._build_workspace_tabs(), "Model Notes")
+        self.content_tabs.tabBar().setExpanding(True)
         layout.addWidget(self.content_tabs, 1)
         return panel
 
@@ -734,7 +776,7 @@ class MainWindow(QMainWindow):
             tabs.addTab(scroll, title)
             self.image_widgets[title] = preview
             self.chart_scroll_areas[title] = scroll
-
+        tabs.tabBar().setExpanding(True)
         self.chart_tabs = tabs
         layout.addWidget(tabs, 1)
         return panel
@@ -743,6 +785,7 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
         tabs.addTab(self._wrap_in_scroll(self._build_metadata_group()), "Model Diagnostics")
         tabs.addTab(self._wrap_in_scroll(self._build_log_group()), "Execution Log")
+        tabs.tabBar().setExpanding(True)
         return tabs
 
     def _wrap_in_scroll(self, widget):

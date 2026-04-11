@@ -56,7 +56,7 @@ def print_regime_explainability_report(profile, labels, output_dir="results"):
         )[:8]
 
         for feat, effect in top_features:
-            direction = "↑" if effect > 0 else "↓"
+            direction = "+" if effect > 0 else "-"
             print(f"  {direction} {feat:30s}: {effect:+.3f}")
 
         if info["top_positive"]:

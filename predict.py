@@ -351,7 +351,7 @@ def analyze_recent_prediction(df, days=30):
     for regime_code, label in REGIME_LABELS.items():
         count = (recent["prediction"] == regime_code).sum()
         share = count / len(recent) * 100
-        bar = "█" * int(share / 2)
+        bar = "#" * int(share / 2)
         print(f"{label:25s}: {bar} {share:.1f}%")
 
     print("\nAverage posterior probabilities:")
