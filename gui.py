@@ -864,7 +864,7 @@ class MainWindow(QMainWindow):
         layout.addRow(self._make_field_label("End Date"), end_row)
 
         self.display_days_input = QSpinBox()
-        self.display_days_input.setRange(30, 2000)
+        self.display_days_input.setRange(30, 9999999)
         self.display_days_input.setValue(365)
         self.display_days_input.setMinimumWidth(120)
         self.display_days_input.valueChanged.connect(self._refresh_context_badges)
