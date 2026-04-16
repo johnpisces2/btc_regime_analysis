@@ -149,7 +149,8 @@ def apply_hmm_consolidation_override(df, regime_confidence, rules):
     - min entropy (0)   = one-hot distribution (100/0/0)  -> certain prediction
     """
     if not rules:
-        return regime_confidence, np.zeros(len(df), dtype=bool)
+        empty_mask = np.zeros(len(df), dtype=bool)
+        return regime_confidence, empty_mask, empty_mask.copy(), empty_mask.copy()
 
     entropy = _compute_entropy(regime_confidence)
     max_prob = regime_confidence.max(axis=1)

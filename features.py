@@ -18,9 +18,32 @@ def _safe_divide(numerator, denominator):
     return numerator / denominator
 
 
+def _infer_bars_per_day(df):
+    """Infer candle frequency from datetime spacing for timeframe-aware features."""
+    if "datetime" not in df.columns or len(df) < 2:
+        return 1
+
+    datetimes = pd.to_datetime(df["datetime"], errors="coerce")
+    deltas = datetimes.diff().dropna()
+    if deltas.empty:
+        return 1
+
+    median_seconds = deltas.dt.total_seconds().median()
+    if pd.isna(median_seconds) or median_seconds <= 0:
+        return 1
+
+    bars_per_day = int(round(86400 / median_seconds))
+    return max(1, bars_per_day)
+
+
+def _days_to_bars(days, bars_per_day):
+    return max(1, int(round(days * bars_per_day)))
+
+
 def compute_features(df):
     """Compute normalized technical features for regime analysis."""
     df = df.copy()
+    bars_per_day = _infer_bars_per_day(df)
 
     close = df["close"]
     high = df["high"]
@@ -28,14 +51,22 @@ def compute_features(df):
     open_ = df["open"]
     volume = df["volume"]
 
-    df["returns_1d"] = close.pct_change(1)
-    df["returns_7d"] = close.pct_change(7)
-    df["returns_30d"] = close.pct_change(30)
-    df["returns_90d"] = close.pct_change(90)
+    return_1d_bars = _days_to_bars(1, bars_per_day)
+    return_7d_bars = _days_to_bars(7, bars_per_day)
+    return_30d_bars = _days_to_bars(30, bars_per_day)
+    return_90d_bars = _days_to_bars(90, bars_per_day)
 
-    df["volatility_7d"] = df["returns_1d"].rolling(window=7).std()
-    df["volatility_30d"] = df["returns_1d"].rolling(window=30).std()
-    df["hist_vol_30d"] = df["volatility_30d"] * np.sqrt(365)
+    df["returns_1d"] = close.pct_change(return_1d_bars)
+    df["returns_7d"] = close.pct_change(return_7d_bars)
+    df["returns_30d"] = close.pct_change(return_30d_bars)
+    df["returns_90d"] = close.pct_change(return_90d_bars)
+
+    bar_returns = close.pct_change(1)
+    vol_7d_bars = _days_to_bars(7, bars_per_day)
+    vol_30d_bars = _days_to_bars(30, bars_per_day)
+    df["volatility_7d"] = bar_returns.rolling(window=vol_7d_bars).std()
+    df["volatility_30d"] = bar_returns.rolling(window=vol_30d_bars).std()
+    df["hist_vol_30d"] = df["volatility_30d"] * np.sqrt(365 * bars_per_day)
     df["vol_compression_7_30"] = _safe_divide(df["volatility_7d"], df["volatility_30d"])
 
     df["sma_20"] = SMAIndicator(close, window=20).sma_indicator()
@@ -123,7 +154,7 @@ def compute_features(df):
     df["ichi_cloud_b_ratio"] = _safe_divide(close - ichi_b, close)
     df["ichi_span_gap_ratio"] = _safe_divide(ichi_a - ichi_b, close)
 
-    direction = np.sign(df["returns_1d"])
+    direction = np.sign(bar_returns)
     direction_change = (
         direction.ne(direction.shift(1)) & direction.ne(0) & direction.shift(1).ne(0)
     ).astype(float)

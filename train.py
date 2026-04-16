@@ -506,7 +506,8 @@ def main():
             test_regime_confidence[:, regime_code] += test_confidence[:, state_id]
             all_regime_confidence[:, regime_code] += all_confidence[:, state_id]
 
-        hmm_rules = build_hmm_consolidation_rules(test_labeled_df)
+        # Learn postprocess thresholds from the training split only.
+        hmm_rules = build_hmm_consolidation_rules(train_labeled_df)
         train_labeled_df = apply_hmm_postprocess(train_labeled_df, train_regime_confidence, hmm_rules)
         test_labeled_df = apply_hmm_postprocess(test_labeled_df, test_regime_confidence, hmm_rules)
         all_labeled_df = apply_hmm_postprocess(all_labeled_df, all_regime_confidence, hmm_rules)
