@@ -315,7 +315,7 @@ def evaluate_model(model, model_type, X_train, X_test, train_labeled_df, test_la
 
 def plot_state_summary(state_summary, output_path="results/state_summary.png"):
     plot_df = state_summary.reset_index(names="state")
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(12, 4.0))
     size_scale = 800
     sns.scatterplot(
         data=plot_df,
@@ -360,7 +360,7 @@ def plot_regime_distribution(df):
     counts = df["regime"].value_counts().sort_index()
     labels = [REGIME_PLOT_LABELS[code] for code in counts.index]
     colors = [REGIME_COLORS[code] for code in counts.index]
-    plt.figure(figsize=(8, 5))
+    plt.figure(figsize=(9, 3.0))
     plt.bar(labels, counts.values, color=colors)
     plt.xticks(rotation=10)
     plt.ylabel("Days")

@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 
@@ -36,6 +37,22 @@ REGIME_ALPHA = {
     1: 0.06,
     2: 0.06,
 }
+
+EMPTY_RESULT_MESSAGE = (
+    "No model-ready rows available for prediction. "
+    "Check the input data range, symbol, exchange, or timeframe."
+)
+
+
+def positive_int(value):
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
+def has_prediction_rows(result):
+    return result is not None and not result.empty
 
 
 def load_model(path="models"):
@@ -163,6 +180,10 @@ def get_current_status(symbol="BTC/USDT", exchange_id="binance", timeframe="4h")
     )
 
     result = predict(df, model, scaler, feature_cols, model_type, state_to_regime, metadata)
+    if not has_prediction_rows(result):
+        print(EMPTY_RESULT_MESSAGE)
+        return result
+
     latest = result.iloc[-1]
 
     print("\n" + "=" * 60)
@@ -186,9 +207,16 @@ def get_current_status(symbol="BTC/USDT", exchange_id="binance", timeframe="4h")
 
 
 def plot_market_prediction(df, window=365):
-    plot_df = df.tail(window).copy()
+    if df is None or df.empty:
+        print("\nSkipped market classification chart: no prediction rows available.")
+        return
 
-    fig, ax = plt.subplots(figsize=(15, 8), facecolor="#EEF1F4")
+    plot_df = df.tail(window).copy()
+    if plot_df.empty:
+        print("\nSkipped market classification chart: no rows in the selected window.")
+        return
+
+    fig, ax = plt.subplots(figsize=(15, 5.0), facecolor="#EEF1F4")
     ax.set_facecolor("#F6F8FA")
 
     datetimes = plot_df["datetime"].to_numpy()
@@ -344,7 +372,14 @@ def plot_market_prediction(df, window=365):
 
 
 def analyze_recent_prediction(df, days=30):
+    if days <= 0:
+        print("\nSkipped recent regime summary: days must be positive.")
+        return
+
     recent = df.tail(days).copy()
+    if recent.empty:
+        print("\nSkipped recent regime summary: no prediction rows available.")
+        return
 
     print(f"\nRecent {days}-day regime summary:")
     print("-" * 40)
@@ -361,12 +396,10 @@ def analyze_recent_prediction(df, days=30):
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="BTC market regime inference")
     parser.add_argument("--symbol", type=str, default="BTC/USDT", help="Trading pair")
     parser.add_argument("--exchange", type=str, default="binance", help="Exchange name")
-    parser.add_argument("--days", type=int, default=365, help="Number of recent days to display")
+    parser.add_argument("--days", type=positive_int, default=365, help="Number of recent days to display")
     parser.add_argument("--timeframe", type=str, default="4h", help="Candle timeframe for --update mode")
     parser.add_argument("--update", action="store_true", help="Fetch the latest exchange data before inference")
     args = parser.parse_args()
@@ -386,6 +419,13 @@ if __name__ == "__main__":
         model, scaler, feature_cols, model_type, state_to_regime, metadata = load_model()
         result = predict(df, model, scaler, feature_cols, model_type, state_to_regime, metadata)
 
-    if result is not None:
-        plot_market_prediction(result, window=args.days)
-        analyze_recent_prediction(result, days=args.days)
+    if result is None:
+        raise SystemExit(1)
+
+    if result.empty:
+        if not args.update:
+            print(EMPTY_RESULT_MESSAGE)
+        raise SystemExit(1)
+
+    plot_market_prediction(result, window=args.days)
+    analyze_recent_prediction(result, days=args.days)

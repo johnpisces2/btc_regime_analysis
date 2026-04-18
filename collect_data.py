@@ -60,7 +60,7 @@ def fetch_btc_ohlcv(symbol="BTC/USDT", exchange_id="binance",
     print(f"\nDone. Fetched {len(all_ohlcv)} candles.")
 
     if len(all_ohlcv) == 0:
-        df = pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df = pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'datetime'])
         df['datetime'] = pd.to_datetime(df['datetime'])
         return df
 

@@ -19,7 +19,9 @@ def run_step(name, args):
     print(f"\n{'=' * 60}")
     print(f"Step: {name}")
     print("=" * 60)
-    subprocess.run([sys.executable, *args], check=False)
+    completed = subprocess.run([sys.executable, *args], check=False)
+    if completed.returncode != 0:
+        raise SystemExit(completed.returncode)
 
 
 def run_cli_pipeline():
@@ -30,6 +32,7 @@ def run_cli_pipeline():
     run_step("1. Fetch Historical Data", ["collect_data.py"])
     run_step("2. Train Regime Model (default: HMM)", ["train.py", "--model", "hmm"])
     run_step("3. Generate Prediction Charts", ["predict.py", "--update"])
+    return 0
 
 
 def main():
@@ -38,8 +41,7 @@ def main():
     args = parser.parse_args()
 
     if args.cli:
-        run_cli_pipeline()
-        return
+        raise SystemExit(run_cli_pipeline())
 
     from gui import launch
 

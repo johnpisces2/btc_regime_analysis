@@ -225,7 +225,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("BTC Regime Analysis")
         self.resize(1700, 860)
         self.setMinimumWidth(1600)
-        self.setMinimumHeight(860)
+        self.setMinimumHeight(900)
         self.setMaximumHeight(2160)
 
         self.process = QProcess(self)
