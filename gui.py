@@ -235,6 +235,10 @@ class MainWindow(QMainWindow):
         self.process.finished.connect(self.on_process_finished)
         self.process.errorOccurred.connect(self.on_process_error)
 
+        self.log_highlight_timer = QTimer(self)
+        self.log_highlight_timer.setSingleShot(True)
+        self.log_highlight_timer.timeout.connect(self._refresh_log_highlights)
+
         self.command_queue = []
         self.current_command = None
         self.latest_status_text = "No results loaded yet. Click Run All to generate fresh outputs."
@@ -1026,7 +1030,7 @@ class MainWindow(QMainWindow):
         self.log_output.moveCursor(QTextCursor.End)
         self.log_output.ensureCursorVisible()
         self._parse_status_from_output(text)
-        self._refresh_log_highlights()
+        self.log_highlight_timer.start(120)
 
     def _parse_status_from_output(self, text):
         price_match = re.search(r"(?:BTC price|比特幣價格):\s*\$([0-9,]+\.\d+)", text)
@@ -1334,7 +1338,8 @@ class MainWindow(QMainWindow):
         commands = [
             ("Fetch Data", self.build_fetch_args()),
             ("Train Model", self.build_train_args()),
-            ("Predict Latest", self.build_predict_args(update=True)),
+            # Reuse the freshly fetched local dataset instead of refetching the full history.
+            ("Predict Local", self.build_predict_args(update=False)),
         ]
         self.start_commands(commands)
 
@@ -1344,6 +1349,7 @@ class MainWindow(QMainWindow):
             return
 
         self.command_queue = list(commands)
+        self.log_highlight_timer.stop()
         self.log_output.clear()
         self.log_highlights.setPlainText("Pipeline started. Highlights will update as each step finishes.")
         self._set_pipeline_status("Pipeline running", "warning")
@@ -1354,7 +1360,6 @@ class MainWindow(QMainWindow):
             self.set_running(False)
             self._set_pipeline_status("Run completed", "success")
             self.statusBar().showMessage("Finished")
-            self.refresh_views()
             return
 
         description, args = self.command_queue.pop(0)
@@ -1383,15 +1388,19 @@ class MainWindow(QMainWindow):
     def on_process_finished(self, exit_code, exit_status):
         if exit_code != 0:
             self.append_log(f"\nCommand failed with exit code {exit_code}\n")
+            self.log_highlight_timer.stop()
+            self._refresh_log_highlights()
             self.command_queue.clear()
             self.set_running(False)
             self._set_pipeline_status("Run failed", "danger")
             self.statusBar().showMessage("Failed")
-            self.refresh_views()
+            self.refresh_views_for_step(self.current_command)
             return
 
         self.append_log(f"\nCompleted: {self.current_command}\n")
-        self.refresh_views()
+        self.log_highlight_timer.stop()
+        self._refresh_log_highlights()
+        self.refresh_views_for_step(self.current_command)
         self._run_next_command()
 
     def on_process_error(self, process_error):
@@ -1414,6 +1423,15 @@ class MainWindow(QMainWindow):
         self.refresh_results()
         self.refresh_metadata_summary()
 
+    def refresh_views_for_step(self, step_name):
+        if step_name == "Fetch Data":
+            return
+        if step_name == "Train Model":
+            self.refresh_views()
+            return
+        if step_name in {"Predict Local", "Predict Latest"}:
+            self.refresh_results()
+
     def reset_views(self):
         for widget in self.image_widgets.values():
             widget.clear_preview()
@@ -1429,6 +1447,7 @@ class MainWindow(QMainWindow):
         self.log_highlights.setPlainText("No run highlights yet.")
 
     def clear_results(self):
+        self.log_highlight_timer.stop()
         self.log_output.clear()
         self.reset_views()
         self._set_pipeline_status("View cleared", "info")
