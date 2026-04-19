@@ -251,6 +251,142 @@ python predict.py --days 180
 python predict.py --update --symbol BTC/USDT --exchange binance --timeframe 4h --days 30
 ```
 
+### Forward Return 分析
+
+整合版腳本放在 `scripts/forward_returns_analysis.py`，可用 `--mode` 切換：
+
+- `regime`：看單一 regime 的 baseline forward return
+- `transition`：看 regime 切換事件的 forward return
+
+直接執行：
+
+```bash
+python scripts/forward_returns_analysis.py --mode regime
+python scripts/forward_returns_analysis.py --mode transition
+```
+
+或用 run script：
+
+```bash
+bash scripts/run_forward_returns_analysis.sh regime
+bash scripts/run_forward_returns_analysis.sh transition
+```
+
+這支腳本會：
+
+- 讀取 `predict.py` 產生的 regime 預測結果
+- 依 `--mode` 切換成 regime baseline 分析或 transition event 分析
+- 統計未來 `7 / 30 / 90` 天報酬的平均、中位數、勝率與分位數
+- 預設輸出：
+  - `results/regime_forward_returns_summary.csv`
+  - `results/regime_forward_returns_detail.csv`
+  - `results/regime_forward_returns.png`
+  - `results/transition_forward_returns_summary.csv`
+  - `results/transition_forward_returns_detail.csv`
+  - `results/transition_forward_returns.png`
+
+### 現貨策略回測
+
+#### 如何執行
+
+```bash
+# 方式一：直接執行（使用預設參數）
+bash scripts/run_backtest.sh
+
+# 方式二：手動指定參數
+python scripts/backtest.py \
+  --input results/regime_predictions_4h.csv \
+  --initial-cash 100000 \
+  --dca-monthly-investment 1562.5 \
+  --start-date 2022-01-01 \
+  --end-date 2026-04-19 \
+  --rebalance-threshold 0.20 \
+  --max-weight-step 0.25 \
+  --transition-cooldown-bars 6 \
+  --min-regime-bars 6
+```
+
+腳本 `scripts/run_backtest.sh` 會自動根據起訖日期計算月數，均分初始資金後執行。
+
+#### 三策略績效比較（2022-01-01 ~ 2026-04-17，$100,000 初始本金）
+
+| 指標 | Regime-Driven | Buy & Hold | Monthly DCA |
+|---|---|---|---|
+| **Final Equity** | **$382,624** | $262,436 | $183,966 |
+| **Total Return** | **+282.6%** | +162.4% | +84.0% |
+| **CAGR** | **+28.8%** | +20.0% | +12.2% |
+| **Max Drawdown** | -48.9% | **-77.0%** | -48.9% |
+| **Sharpe Ratio** | **0.94** | 0.60 | 0.54 |
+| **Trade Count** | 608 | — | 64 |
+| **Avg Spot Weight** | 55.8% | 100% | — |
+
+> Regime-Driven 在最終報酬、夏普比率、明顯縮小最大回撤（-48.9% vs -77.0%）三個維度全面勝出。
+
+#### 權益曲線比較圖
+
+![Equity Curve](results/backtest_equity_curve.png)
+
+如上圖所示，Regime-Driven（綠色）在 2022 下半年熊市期間成功減倉避開最大跌幅，2023-2024 多頭期間精準回補，2025 年後輕倉觀望。三策略走勢清晰可見：Regime-Driven 最終 equity 為 B&H 的 1.46 倍，為 DCA 的 2.08 倍。
+
+#### 策略邏輯
+
+策略基於 Regime 與 Transition 訊號，採用**下一根 bar open 價執行**，避免 look-ahead bias。規則如下：
+
+| Priority | Trigger Type | Trigger | Target Spot Weight | 交易邏輯 |
+|---|---|---|---:|---|
+| 1 | Transition | `Bear -> Bull` | 100% | 強反轉確認，積極全倉回補 |
+| 2 | Transition | `Bear -> Consolidation` | 60% | 跌勢鈍化，開始分批承接 |
+| 3 | Transition | `Consolidation -> Bull` | 85% | 盤整後突破，順勢加碼 |
+| 4 | Transition | `Bull -> Consolidation` | 35% | 漲勢降溫，先行減碼 |
+| 5 | Transition | `Bull -> Bear` | 15% | 結構轉弱，保留小核心部位 |
+| 6 | Transition | `Consolidation -> Bear` | 20% | 盤整轉弱，防守優先 |
+| 7 | Regime | `Bull` | 90% | 多頭趨勢 baseline，續抱為主 |
+| 8 | Regime | `Consolidation` | 55% | 中性市場，保留核心倉位 |
+| 9 | Regime | `Bear` | 20% | 空頭市場，避免把每次回調當抄底 |
+
+**優先順序**：先看是否有符合的 Transition 規則（優先級 1-6），沒有的話才套用 Regime 規則（優先級 7-9）。
+
+#### 仓位管理與風控
+
+- **目標倉位**：根據上表之 target weight，計算 `spot_weight = btc * close_price / equity`
+- **Regime 確認延遲（min-regime-bars）**：Regime 改變後需連續 6 根 bar 都維持同一狀態，才視為有效 transition 並觸發調倉。目的是消除 regime flicker（38.6% 的 regime runs <= 6 bars）造成的錯誤訊號
+- **Rebalance 門檻**：目標與實際倉位差距 ≥ 20% 才觸發調整（經 threshold sweep 分析，20% 最優）
+- **Step Limit**：每次最多調整 25%，模擬分批加減碼避免一次性鉅額交易（經 sweep 分析，25% 為最佳值）
+- **Transition Cooldown**：Transition 規則觸發成交後，冷卻 6 根 bar 才允許再次調倉（sweep 顯示 6 為甜蜜點，過長會明顯變差）
+- **執行假設**：
+  - 手續費：單邊 0.05%（5 bps）
+  - 滑價：10 bps（0.1%），以 open 價執行時額外加成
+
+#### 參數優化結論（Smoke Test）
+
+單一參數調整幾乎沒有 edge，現有參數組合已接近 Pareto optimal：
+
+| 參數 | 預設值 | 結論 |
+|---|---|---|
+| `max_weight_step` | 0.25 | 已是最佳，更高反而變差 |
+| `rebalance_threshold` | 0.20 | 已是最佳，0.30+ 急劇變差 |
+| `transition_cooldown_bars` | 6 | 甜蜜點，9+ 明顯變差 |
+| `min_regime_bars` | 6 | 消除 flicker 的最小值 |
+| `confidence_threshold` | 未啟用 | 低信心時抑制交易反而讓回報下降 |
+
+#### 三策略說明
+
+| 策略 | 說明 |
+|---|---|
+| **Regime-Driven** | 主動倉位策略，根據 Regime 狀態與 Transition 訊號動態調整現貨倉位（20%~100%） |
+| **Buy & Hold** | 初始資金於第一根 bar open 全部投入，持有不動 |
+| **Monthly DCA** | 初始資金均分為 N 等分（ N = 測試區間月數），每月第一根 bar open 定投 |
+
+三策略初始本金相同（$100,000），可公平比較絕對值與報酬率。
+
+#### 輸出檔案
+
+- `results/backtest_summary.csv` — 績效指標摘要
+- `results/backtest_trades.csv` — 所有策略交易明細
+- `results/backtest_equity_curve.csv` — 逐 bar 權益曲線（含三策略對照）
+- `results/spot_strategy_rules.csv` — 策略規則表
+- `results/backtest_equity_curve.png` — 三策略權益曲線與倉位變化圖
+
 ### 一鍵 CLI 流程
 
 ```bash
