@@ -1,0 +1,37 @@
+metric,value
+start_datetime,2021-01-01 00:00:00
+end_datetime,2026-04-17 16:00:00
+bars_per_day,6.0
+years,5.294977168949772
+initial_cash,100000.0
+final_equity_regime,186425.05081353628
+final_equity_buy_hold,262436.14139885246
+final_equity_dca,183966.1222021331
+total_return_regime,0.8642505081353629
+total_return_buy_hold,1.6243614139885247
+total_return_dca,0.8396612220213309
+cagr_regime,0.12483017114984718
+cagr_buy_hold,0.1998751594869499
+cagr_dca,0.12201308499449937
+max_drawdown_regime,-0.5706468172878245
+max_drawdown_buy_hold,-0.7704339319608702
+max_drawdown_dca,-0.4893911059149527
+annual_volatility_regime,0.3280656683837038
+annual_volatility_buy_hold,0.590343696130359
+annual_volatility_dca,0.2963558024281753
+sharpe_regime,0.5225142143122998
+sharpe_buy_hold,0.6038400696741919
+sharpe_dca,0.536642573442984
+trade_count,397
+transition_triggered_trade_count,313
+dca_trade_count,64
+total_turnover,14722667.677337503
+total_fees_paid,7361.333838668752
+dca_total_fees_paid,49.97501249375313
+dca_monthly_notional,1562.5
+dca_cumulative_invested,100000.0
+dca_uses_external_cash,False
+avg_spot_weight,0.5636275667864198
+rebalance_threshold,0.2
+transition_cooldown_bars,6
+min_regime_bars,6

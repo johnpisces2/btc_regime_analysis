@@ -9,6 +9,11 @@ import pandas as pd
 
 
 REGIME_ORDER = ["Consolidation", "Bull", "Bear"]
+DEFAULT_REGIME_WEIGHTS = {
+    "Bull": 0.90,
+    "Consolidation": 0.55,
+    "Bear": 0.20,
+}
 
 DEFAULT_RULES = [
     {
@@ -75,6 +80,13 @@ DEFAULT_RULES = [
         "rationale": "Defensive baseline; avoid treating every bear bar as a bottom.",
     },
 ]
+
+
+def weight_arg(value):
+    parsed = float(value)
+    if parsed < 0.0 or parsed > 1.0:
+        raise argparse.ArgumentTypeError("weight must be between 0.0 and 1.0")
+    return parsed
 
 
 def parse_args():
@@ -155,6 +167,36 @@ def parse_args():
         help="Minimum posterior probability required to confirm a regime signal. When omitted, all signals are used.",
     )
     parser.add_argument(
+        "--strategy-preset",
+        choices=[
+            "default",
+            "regime_baseline",
+            "no_transition",
+            "transition_confirmed",
+            "custom_weights",
+        ],
+        default="default",
+        help="Strategy rule preset. default keeps the built-in transition/regime rules.",
+    )
+    parser.add_argument(
+        "--bull-weight",
+        type=weight_arg,
+        default=DEFAULT_REGIME_WEIGHTS["Bull"],
+        help="Target spot weight for Bull in non-default/custom presets.",
+    )
+    parser.add_argument(
+        "--consolidation-weight",
+        type=weight_arg,
+        default=DEFAULT_REGIME_WEIGHTS["Consolidation"],
+        help="Target spot weight for Consolidation in non-default/custom presets.",
+    )
+    parser.add_argument(
+        "--bear-weight",
+        type=weight_arg,
+        default=DEFAULT_REGIME_WEIGHTS["Bear"],
+        help="Target spot weight for Bear in non-default/custom presets.",
+    )
+    parser.add_argument(
         "--start-date",
         default=None,
         help="Optional inclusive start date filter, e.g. 2022-01-01",
@@ -219,8 +261,10 @@ def load_prediction_frame(path):
 
 
 def build_month_index(df, datetime_col):
-    month_key = pd.to_datetime(df[datetime_col]).dt.to_period("M")
-    return month_key
+    datetimes = pd.to_datetime(df[datetime_col])
+    if datetimes.dt.tz is not None:
+        datetimes = datetimes.dt.tz_localize(None)
+    return datetimes.dt.to_period("M")
 
 
 def prepare_frame(df, args):
@@ -317,19 +361,70 @@ def execute_spot_buy(cash, btc, open_price, trade_notional, fee_rate, slippage_b
     return cash_after, btc_after, trade
 
 
-def build_rules_table():
-    return pd.DataFrame(DEFAULT_RULES)
+def build_regime_rules(weights, start_priority=1):
+    rows = []
+    for offset, regime_name in enumerate(["Bull", "Consolidation", "Bear"]):
+        rows.append(
+            {
+                "priority": start_priority + offset,
+                "trigger_type": "regime",
+                "trigger": regime_name,
+                "target_weight": float(weights[regime_name]),
+                "rationale": f"Regime-only target for {regime_name}.",
+            }
+        )
+    return rows
 
 
-def determine_target_weight(row):
-    transition = row["transition"]
-    regime = row["prediction_name"]
+def get_regime_weights(args):
+    return {
+        "Bull": float(getattr(args, "bull_weight", DEFAULT_REGIME_WEIGHTS["Bull"])),
+        "Consolidation": float(
+            getattr(args, "consolidation_weight", DEFAULT_REGIME_WEIGHTS["Consolidation"])
+        ),
+        "Bear": float(getattr(args, "bear_weight", DEFAULT_REGIME_WEIGHTS["Bear"])),
+    }
 
-    for rule in DEFAULT_RULES:
+
+def build_strategy_rules(args):
+    custom_rules = getattr(args, "custom_rules", None)
+    if custom_rules is not None:
+        return [dict(rule) for rule in custom_rules]
+
+    preset = getattr(args, "strategy_preset", "default")
+    weights = get_regime_weights(args)
+
+    if preset == "default":
+        return [dict(rule) for rule in DEFAULT_RULES]
+
+    if preset in {"regime_baseline", "no_transition", "custom_weights"}:
+        return build_regime_rules(weights)
+
+    if preset == "transition_confirmed":
+        transition_rules = [
+            dict(rule) for rule in DEFAULT_RULES if rule["trigger_type"] == "transition"
+        ]
+        transition_count = len(transition_rules)
+        return transition_rules + build_regime_rules(
+            weights,
+            start_priority=transition_count + 1,
+        )
+
+    raise ValueError(f"Unknown strategy preset: {preset}")
+
+
+def build_rules_table(args=None):
+    if args is None:
+        return pd.DataFrame(DEFAULT_RULES)
+    return pd.DataFrame(build_strategy_rules(args))
+
+
+def determine_target_weight(regime, transition, rules):
+    for rule in rules:
         if rule["trigger_type"] == "transition" and rule["trigger"] == transition:
             return float(rule["target_weight"]), rule["trigger"]
 
-    for rule in DEFAULT_RULES:
+    for rule in rules:
         if rule["trigger_type"] == "regime" and rule["trigger"] == regime:
             return float(rule["target_weight"]), rule["trigger"]
 
@@ -403,6 +498,7 @@ def execute_rebalance(cash, btc, mark_price, open_price, target_weight, fee_rate
 
 
 def run_backtest(df, args):
+    rules = build_strategy_rules(args)
     cash = float(args.initial_cash)
     btc = 0.0
     pending_order = None
@@ -410,7 +506,7 @@ def run_backtest(df, args):
 
     confirmed_regime = None
     consecutive_regime_bars = 0
-    prev_regime = None
+    current_run_regime = None
 
     dca_cash = float(args.initial_cash) if not args.dca_external_cash else 0.0
     dca_btc = 0.0
@@ -432,7 +528,7 @@ def run_backtest(df, args):
         open_price = float(row[args.open_col])
         close_price = float(row[args.close_col])
         regime = row[args.regime_col]
-        transition = row["transition"]
+        raw_transition = row["transition"]
 
         dca_trade = None
         if idx in dca_schedule:
@@ -479,20 +575,32 @@ def run_backtest(df, args):
                     transition_cooldown_remaining = args.transition_cooldown_bars + 1
             pending_order = None
 
-        if regime == prev_regime:
+        if regime == current_run_regime:
             consecutive_regime_bars += 1
         else:
             consecutive_regime_bars = 1
-            prev_regime = regime
+            current_run_regime = regime
 
-        if consecutive_regime_bars >= args.min_regime_bars:
+        previous_confirmed_regime = confirmed_regime
+        if confirmed_regime is None:
             confirmed_regime = regime
+        elif regime != confirmed_regime and consecutive_regime_bars >= args.min_regime_bars:
+            confirmed_regime = regime
+
+        if previous_confirmed_regime is None:
+            confirmed_transition = "START"
+        elif confirmed_regime != previous_confirmed_regime:
+            confirmed_transition = f"{previous_confirmed_regime} -> {confirmed_regime}"
         else:
-            confirmed_regime = prev_regime if prev_regime is not None else regime
+            confirmed_transition = confirmed_regime
 
         equity = cash + btc * close_price
         spot_weight = (btc * close_price) / equity if equity > 0 else 0.0
-        desired_weight, trigger = determine_target_weight(row)
+        desired_weight, trigger = determine_target_weight(
+            confirmed_regime,
+            confirmed_transition,
+            rules,
+        )
         trigger_type = "transition" if " -> " in trigger else "regime"
 
         next_target_weight = np.nan
@@ -524,7 +632,7 @@ def run_backtest(df, args):
                         "trigger": trigger,
                         "trigger_type": trigger_type,
                         "signal_regime": confirmed_regime,
-                        "signal_transition": f"{prev_regime} -> {confirmed_regime}" if prev_regime != confirmed_regime else confirmed_regime,
+                        "signal_transition": confirmed_transition,
                     }
 
         equity_rows.append(
@@ -534,7 +642,8 @@ def run_backtest(df, args):
                 "regime": regime,
                 "confirmed_regime": confirmed_regime,
                 "consecutive_regime_bars": consecutive_regime_bars,
-                "transition": transition,
+                "transition": raw_transition,
+                "confirmed_transition": confirmed_transition,
                 "trigger_used": trigger,
                 "trigger_type_used": trigger_type,
                 "desired_spot_weight": desired_weight,
@@ -634,7 +743,11 @@ def compute_performance_metrics(equity_df, trades_df, initial_cash, bars_per_day
             {"metric": "bars_per_day", "value": bars_per_day},
             {"metric": "years", "value": years},
             {"metric": "initial_cash", "value": initial_cash},
-{"metric": "final_equity_regime", "value": float(df["equity"].iloc[-1])},
+            {"metric": "strategy_preset", "value": getattr(args, "strategy_preset", "default")},
+            {"metric": "bull_weight", "value": float(getattr(args, "bull_weight", DEFAULT_REGIME_WEIGHTS["Bull"]))},
+            {"metric": "consolidation_weight", "value": float(getattr(args, "consolidation_weight", DEFAULT_REGIME_WEIGHTS["Consolidation"]))},
+            {"metric": "bear_weight", "value": float(getattr(args, "bear_weight", DEFAULT_REGIME_WEIGHTS["Bear"]))},
+            {"metric": "final_equity_regime", "value": float(df["equity"].iloc[-1])},
             {"metric": "final_equity_buy_hold", "value": float(df["buy_hold_equity"].iloc[-1])},
             {"metric": "final_equity_dca", "value": float(df["dca_equity"].iloc[-1])},
             {"metric": "total_return_regime", "value": float(strategy_total_return)},
@@ -795,7 +908,7 @@ def main():
     df = prepare_frame(raw_df, args)
     bars_per_day = infer_bars_per_day(df, args.datetime_col)
 
-    rules_df = build_rules_table()
+    rules_df = build_rules_table(args)
     equity_df, trades_df = run_backtest(df, args)
     summary_df, equity_df = compute_performance_metrics(
         equity_df=equity_df,

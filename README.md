@@ -308,25 +308,25 @@ python scripts/backtest.py \
 
 腳本 `scripts/run_backtest.sh` 會自動根據起訖日期計算月數，均分初始資金後執行。
 
-#### 三策略績效比較（2022-01-01 ~ 2026-04-17，$100,000 初始本金）
+#### 三策略績效比較（2021-01-01 ~ 2026-04-17，$100,000 初始本金）
 
 | 指標 | Regime-Driven | Buy & Hold | Monthly DCA |
 |---|---|---|---|
-| **Final Equity** | **$382,624** | $262,436 | $183,966 |
-| **Total Return** | **+282.6%** | +162.4% | +84.0% |
-| **CAGR** | **+28.8%** | +20.0% | +12.2% |
-| **Max Drawdown** | -48.9% | **-77.0%** | -48.9% |
-| **Sharpe Ratio** | **0.94** | 0.60 | 0.54 |
-| **Trade Count** | 608 | — | 64 |
-| **Avg Spot Weight** | 55.8% | 100% | — |
+| **Final Equity** | $186,425 | **$262,436** | $183,966 |
+| **Total Return** | +86.4% | **+162.4%** | +84.0% |
+| **CAGR** | +12.5% | **+20.0%** | +12.2% |
+| **Max Drawdown** | -57.1% | -77.0% | **-48.9%** |
+| **Sharpe Ratio** | 0.52 | **0.60** | 0.54 |
+| **Trade Count** | 397 | — | 64 |
+| **Avg Spot Weight** | 56.4% | 100% | — |
 
-> Regime-Driven 在最終報酬、夏普比率、明顯縮小最大回撤（-48.9% vs -77.0%）三個維度全面勝出。
+> 修正 `min_regime_bars` 後，現行 default regime-driven 策略不再具備 beat buy-and-hold 的證據。它降低了 buy-and-hold 的最大回撤，但 final equity、CAGR、Sharpe 都落後。
 
 #### 權益曲線比較圖
 
 ![Equity Curve](results/backtest_equity_curve.png)
 
-如上圖所示，Regime-Driven（綠色）在 2022 下半年熊市期間成功減倉避開最大跌幅，2023-2024 多頭期間精準回補，2025 年後輕倉觀望。三策略走勢清晰可見：Regime-Driven 最終 equity 為 B&H 的 1.46 倍，為 DCA 的 2.08 倍。
+如上圖所示，Regime-Driven（綠色）在熊市期間會降低曝險，但也會在強勢上漲區間少拿 BTC beta。修正後的策略更接近風險控制 overlay，而不是已驗證的 beat-B&H alpha strategy。
 
 #### 策略邏輯
 
@@ -357,17 +357,44 @@ python scripts/backtest.py \
   - 手續費：單邊 0.05%（5 bps）
   - 滑價：10 bps（0.1%），以 open 價執行時額外加成
 
-#### 參數優化結論（Smoke Test）
+#### 策略研究與優化結論
 
-單一參數調整幾乎沒有 edge，現有參數組合已接近 Pareto optimal：
+研究腳本：
+
+```bash
+python scripts/research_strategy.py
+```
+
+預設採用 coarse-to-fine 掃描；若要跑完整笛卡兒參數網格，可加上 `--full-grid`，但耗時會明顯增加。
+
+輸出：
+
+- `results/strategy_research_train.csv`
+- `results/strategy_research_holdout.csv`
+- `results/strategy_research_cost_stress.csv`
+- `results/strategy_research_date_robustness.csv`
+- `results/strategy_research_report.md`
+- `results/strategy_research_top_equity.png`
+
+目前研究採用固定切分：
+
+- Train：`2021-01-01` ~ `2024-09-08 20:00`
+- Holdout：`2024-09-09 00:00` ~ latest available prediction
+
+結論：train 區間可以找到勝過 buy-and-hold 的參數組合，但 top train candidates 在 holdout 全部未能打贏 buy-and-hold。最佳 holdout 組合如下：
 
 | 參數 | 預設值 | 結論 |
 |---|---|---|
-| `max_weight_step` | 0.25 | 已是最佳，更高反而變差 |
-| `rebalance_threshold` | 0.20 | 已是最佳，0.30+ 急劇變差 |
-| `transition_cooldown_bars` | 6 | 甜蜜點，9+ 明顯變差 |
-| `min_regime_bars` | 6 | 消除 flicker 的最小值 |
-| `confidence_threshold` | 未啟用 | 低信心時抑制交易反而讓回報下降 |
+| `strategy_preset` | `custom_weights` | regime-only 比 transition rules 更穩定，但仍未打贏 B&H |
+| `bull_weight` | `0.75` | 多頭仍低於滿倉，降低 upside capture |
+| `consolidation_weight` | `0.25` | 中性區間明顯降曝險 |
+| `bear_weight` | `0.35` | 熊市仍保留核心現貨 |
+| `min_regime_bars` | `24` | 約 4 天確認，交易更少、回撤更低 |
+| Holdout final equity | `$122,087` | B&H 為 `$139,570` |
+| Holdout CAGR | `13.2%` | B&H 為 `23.1%` |
+| Holdout max drawdown | `-18.4%` | B&H 為 `-49.8%` |
+
+> 目前未找到 beat-B&H edge。最佳候選只能定位為降低回撤的 risk overlay，不應宣稱為可打贏 buy-and-hold 的策略。
 
 #### 三策略說明
 

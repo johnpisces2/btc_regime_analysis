@@ -4,9 +4,6 @@ data/
 # Models - trained model artifacts (pkl, json, feature_cols)
 models/
 
-# Results - generated charts and outputs
-results/
-
 # Python bytecode cache
 __pycache__/
 *.pyc

@@ -1,0 +1,10 @@
+priority,trigger_type,trigger,target_weight,rationale
+1,transition,Bear -> Bull,1.0,Strongest reversal confirmation in transition forward-return analysis.
+2,transition,Bear -> Consolidation,0.6,Early base-building zone after a bearish stretch.
+3,transition,Consolidation -> Bull,0.85,Bullish breakout from a neutral regime tends to follow through.
+4,transition,Bull -> Consolidation,0.35,Trend fatigue; reduce spot exposure rather than chasing.
+5,transition,Bull -> Bear,0.15,Defensive reset after a bullish regime breaks down.
+6,transition,Consolidation -> Bear,0.2,Weakening structure; keep only a small core allocation.
+7,regime,Bull,0.9,Trend-following baseline in confirmed bullish conditions.
+8,regime,Consolidation,0.55,Neutral baseline while waiting for the next directional move.
+9,regime,Bear,0.2,Defensive baseline; avoid treating every bear bar as a bottom.
