@@ -3,9 +3,12 @@ import json
 import os
 
 import joblib
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
+import sklearn
 from matplotlib.collections import LineCollection
 from matplotlib.patches import Patch
 
@@ -55,6 +58,32 @@ def has_prediction_rows(result):
     return result is not None and not result.empty
 
 
+def print_current_state(result, metadata=None):
+    if not has_prediction_rows(result):
+        print(EMPTY_RESULT_MESSAGE)
+        return
+
+    latest = result.iloc[-1]
+
+    print("\n" + "=" * 60)
+    print(f"Current market state ({latest['datetime']})")
+    print("=" * 60)
+    print(f"BTC price: ${latest['close']:,.2f}")
+    print(f"Latent state: state {int(latest['state'])}")
+    print(f"Market regime: {REGIME_LABELS[latest['prediction']]}")
+    print("\nPosterior probabilities:")
+    print(f"  Consolidation: {latest['prob_consolidation'] * 100:.1f}%")
+    print(f"  Bull: {latest['prob_bull'] * 100:.1f}%")
+    print(f"  Bear: {latest['prob_bear'] * 100:.1f}%")
+
+    if metadata and metadata.get("model_type") == "hmm" and "transition_matrix" in metadata:
+        transition = np.array(metadata["transition_matrix"])
+        current_state = int(latest["state"])
+        if 0 <= current_state < transition.shape[0]:
+            print("\nNext-step transition tendency:")
+            print(f"  Stay in state {current_state}: {transition[current_state, current_state] * 100:.1f}%")
+
+
 def load_model(path="models"):
     model = joblib.load(f"{path}/model.pkl")
     scaler = joblib.load(f"{path}/scaler.pkl")
@@ -64,6 +93,13 @@ def load_model(path="models"):
 
     with open(f"{path}/metadata.json", "r", encoding="utf-8") as file:
         metadata = json.load(file)
+
+    model_sklearn_version = metadata.get("sklearn_version")
+    if model_sklearn_version and model_sklearn_version != sklearn.__version__:
+        print(
+            "[WARN] Model artifacts were trained with scikit-learn "
+            f"{model_sklearn_version}, but the current environment is {sklearn.__version__}."
+        )
 
     mapping_key = "state_to_regime" if "state_to_regime" in metadata else "cluster_to_regime"
     state_to_regime = {int(key): value for key, value in metadata[mapping_key].items()}
@@ -184,25 +220,7 @@ def get_current_status(symbol="BTC/USDT", exchange_id="binance", timeframe="4h")
         print(EMPTY_RESULT_MESSAGE)
         return result
 
-    latest = result.iloc[-1]
-
-    print("\n" + "=" * 60)
-    print(f"Current market state ({latest['datetime']})")
-    print("=" * 60)
-    print(f"BTC price: ${latest['close']:,.2f}")
-    print(f"Latent state: state {int(latest['state'])}")
-    print(f"Market regime: {REGIME_LABELS[latest['prediction']]}")
-    print("\nPosterior probabilities:")
-    print(f"  Consolidation: {latest['prob_consolidation'] * 100:.1f}%")
-    print(f"  Bull: {latest['prob_bull'] * 100:.1f}%")
-    print(f"  Bear: {latest['prob_bear'] * 100:.1f}%")
-
-    if model_type == "hmm" and "transition_matrix" in metadata:
-        transition = np.array(metadata["transition_matrix"])
-        current_state = int(latest["state"])
-        print("\nNext-step transition tendency:")
-        print(f"  Stay in state {current_state}: {transition[current_state, current_state] * 100:.1f}%")
-
+    print_current_state(result, metadata)
     return result
 
 
@@ -426,6 +444,9 @@ if __name__ == "__main__":
         if not args.update:
             print(EMPTY_RESULT_MESSAGE)
         raise SystemExit(1)
+
+    if not args.update:
+        print_current_state(result, metadata)
 
     plot_market_prediction(result, window=args.days)
     analyze_recent_prediction(result, days=args.days)

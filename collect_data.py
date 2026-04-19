@@ -6,11 +6,12 @@ import os
 import argparse
 
 UTC8 = timezone(timedelta(hours=8))
+MAX_FETCH_RETRIES = 3
 
 
 def fetch_btc_ohlcv(symbol="BTC/USDT", exchange_id="binance", 
                      start_date="2018-01-01", end_date=None,
-                     timeframe="4h", limit=1000):
+                     timeframe="4h", limit=1000, max_retries=MAX_FETCH_RETRIES):
     """Fetch historical BTC OHLCV candles with ccxt."""
     exchange = getattr(ccxt, exchange_id)({
         'enableRateLimit': True,
@@ -26,10 +27,15 @@ def fetch_btc_ohlcv(symbol="BTC/USDT", exchange_id="binance",
     if end_dt.date() == today:
         end_ts = int(datetime.now(UTC8).timestamp() * 1000)
     else:
-        end_ts = int(end_dt.timestamp() * 1000)
+        # Treat the end date as inclusive for the whole day, not midnight at its start.
+        end_ts = int((end_dt + timedelta(days=1)).timestamp() * 1000) - 1
+
+    if start_ts > end_ts:
+        raise ValueError("start_date must be earlier than or equal to end_date")
     
     all_ohlcv = []
     current_ts = start_ts
+    consecutive_errors = 0
     
     print(f"Fetching {symbol} {timeframe} data from {exchange_id}...")
     print(f"Date range: {start_date} -> {end_date}")
@@ -44,6 +50,7 @@ def fetch_btc_ohlcv(symbol="BTC/USDT", exchange_id="binance",
             all_ohlcv.extend(ohlcv)
             
             current_ts = ohlcv[-1][0] + 1
+            consecutive_errors = 0
             
             if end_ts > start_ts:
                 progress = min(100, (current_ts - start_ts) / (end_ts - start_ts) * 100)
@@ -54,7 +61,12 @@ def fetch_btc_ohlcv(symbol="BTC/USDT", exchange_id="binance",
             time.sleep(exchange.rateLimit / 1000)
             
         except Exception as e:
-            print(f"\nError: {e}")
+            consecutive_errors += 1
+            print(f"\nError ({consecutive_errors}/{max_retries}): {e}")
+            if consecutive_errors >= max_retries:
+                raise RuntimeError(
+                    f"Failed to fetch {symbol} {timeframe} data from {exchange_id} after {max_retries} attempts"
+                ) from e
             time.sleep(5)
     
     print(f"\nDone. Fetched {len(all_ohlcv)} candles.")

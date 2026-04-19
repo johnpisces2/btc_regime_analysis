@@ -1350,6 +1350,7 @@ class MainWindow(QMainWindow):
 
         self.command_queue = list(commands)
         self.log_highlight_timer.stop()
+        self._prepare_views_for_run(commands)
         self.log_output.clear()
         self.log_highlights.setPlainText("Pipeline started. Highlights will update as each step finishes.")
         self._set_pipeline_status("Pipeline running", "warning")
@@ -1423,6 +1424,25 @@ class MainWindow(QMainWindow):
         self.refresh_results()
         self.refresh_metadata_summary()
 
+    def _reset_runtime_summary(self):
+        self.latest_status_text = "No results loaded yet. Click Run All to generate fresh outputs."
+        self.latest_probabilities = {}
+        self.latest_regime = None
+        self.latest_state = None
+        self.latest_price = None
+        self.latest_window_share = {}
+        self.latest_avg_prob = {}
+        self._render_summary()
+
+    def _prepare_views_for_run(self, commands):
+        command_names = {name for name, _args in commands}
+        self._reset_runtime_summary()
+        if "Train Model" in command_names:
+            self.metadata_text.setPlainText("Training in progress. Fresh model diagnostics will appear after completion.")
+        if {"Predict Local", "Predict Latest"} & command_names:
+            for widget in self.image_widgets.values():
+                widget.clear_preview()
+
     def refresh_views_for_step(self, step_name):
         if step_name == "Fetch Data":
             return
@@ -1436,14 +1456,7 @@ class MainWindow(QMainWindow):
         for widget in self.image_widgets.values():
             widget.clear_preview()
         self.metadata_text.setPlainText("No model summary loaded yet.\nClick Run All to generate results.")
-        self.latest_status_text = "No results loaded yet. Click Run All to generate fresh outputs."
-        self.latest_probabilities = {}
-        self.latest_regime = None
-        self.latest_state = None
-        self.latest_price = None
-        self.latest_window_share = {}
-        self.latest_avg_prob = {}
-        self._render_summary()
+        self._reset_runtime_summary()
         self.log_highlights.setPlainText("No run highlights yet.")
 
     def clear_results(self):

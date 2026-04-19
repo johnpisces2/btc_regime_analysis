@@ -3,9 +3,12 @@ import json
 import os
 
 import joblib
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+import sklearn
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 
@@ -68,12 +71,15 @@ def load_and_prepare_data(model_type="hmm", test_size=0.2, scaler_type="standard
     min_required = 100
     if len(df_model) < min_required:
         raise ValueError(f"Need at least {min_required} model-ready rows, got {len(df_model)}")
+    if len(df_model) < min_required * 2:
+        raise ValueError(
+            f"Need at least {min_required * 2} model-ready rows to keep both train and test splits usable, "
+            f"got {len(df_model)}"
+        )
 
     split_idx = int(len(df_model) * (1 - test_size))
-    if split_idx < min_required:
-        split_idx = min_required
-    if split_idx > len(df_model) - min_required:
-        split_idx = len(df_model) - min_required
+    split_idx = max(min_required, split_idx)
+    split_idx = min(split_idx, len(df_model) - min_required)
 
     train_df = df_model.iloc[:split_idx].copy()
     test_df = df_model.iloc[split_idx:].copy()
@@ -395,6 +401,7 @@ def save_model(
 
     metadata = {
         "model_type": model_type,
+        "sklearn_version": sklearn.__version__,
         "state_to_regime": {str(key): value for key, value in state_to_regime.items()},
         "regime_labels": {str(key): value for key, value in REGIME_LABELS.items()},
         "metrics": metrics,
